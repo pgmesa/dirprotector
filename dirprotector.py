@@ -14,11 +14,11 @@ locked_dirname = '.locked'
 info_dirname = '.__info__'
 password_fname = '.__password__'
 salt_cellar_fname = '.__salt-cellar__'
-hint_fname = "hint.txt"
+hint_fname = "__hint__.txt"
 
 commands = {
-    'lock': "Encrypts all files in the directory (not subdirectories)",
-    'unlock': "Decrypts the files encrypted"
+    'lock': "Encrypts all files in the directory (not subdirectories). Add -r for subdirectories",
+    'unlock': "Decrypts the files encrypted. Add -r for subdirectories"
 }
 
 enc_info_headers = ["file_extension", "salt", "token"]
@@ -27,12 +27,16 @@ enc_info_headers = ["file_extension", "salt", "token"]
 def main():
     print(" + DIR PROTECTOR (ctrl-c to exit):")
     args = sys.argv; args.pop(0)
+    print(args)
     current_fname = os.path.basename(__file__)
     target_dir = get_target_dir(args)
     print(f'[%] Target dir -> "{target_dir}"')
-    if len(args) > 0:        
-        if "lock" in args: lock(dir_path=target_dir)
-        elif "unlock" in args: unlock(dir_path=target_dir)
+    if len(args) > 0:
+        recursively = False
+        if "-r" in args: 
+            recursively = True 
+        if "lock" in args: lock(dir_path=target_dir, r=recursively)
+        elif "unlock" in args: unlock(dir_path=target_dir, r=recursively)
         else: activate_shell(dir_path=target_dir)
     else: activate_shell(dir_path=target_dir)
         
@@ -41,11 +45,15 @@ def activate_shell(dir_path:Path):
     print(" -  Enter command: ")
     valid_command = False
     while not valid_command:
-        command = str(input("> "))
+        command_line = str(input("> ")).split(" ")
+        command = command_line[0]
         if command in commands:
+            recursively = False
+            if len(command_line) > 1 and command_line[1] == "-r": 
+                recursively = True
             valid_command = True
-            if command == 'lock': lock(dir_path)
-            elif command == 'unlock': unlock(dir_path)
+            if command == 'lock': lock(dir_path, recursively)
+            elif command == 'unlock': unlock(dir_path, recursively)
         else:
             print(f"[!] '{command}' command doesn't exist in the program")
                 
@@ -91,26 +99,41 @@ def clean_trash(locked_dir_path:Path):
         os.chmod(name, stat.S_IWRITE)
         os.remove(name)
     shutil.rmtree(locked_dir_path, onerror=del_rw)
+    os.remove(locked_dir_path.parent/hint_fname)
     
                 
 # ---------- COMMANDS --------- 
-def lock(dir_path:Path):
+def lock(dir_path:Path, r=False):
     # Vemos si este directorio ya ha sido encriptado
     if is_locked(dir_path):
         print(f"[!] This directory is already locked")
         return
+    if r: print("[%] Locking directory recursively...")
+    else: print("[%] Locking directory...")
     password = str(input(" + Choose a password: "))
     print(f" -> Password chosen: '{password}'")
-    print("[%] Locking directory...")
     print(f"[-] Creating '{locked_dirname}' directory")
     dest_dir = Path(dir_path/(locked_dirname+f"-{get_date(path_friendly=True)}"))
+    _lock(dir_path, dest_dir, password, r=r)
+    # Creamos un fichero para que el usuario pude guardar un pista de la contraseña
+    hint_file_path = dir_path/hint_fname
+    with open(hint_file_path, 'w') as hint_file:
+        msg = "# Add a hint for your locked dir password:\n      => hint: ''"
+        hint_file.write(msg)
+
+    print(f"[%] Finished -> '{dir_path}' has been locked")
+
+def _lock(dir_path:Path, dest_dir:Path, password, r=False):
     if not os.path.exists(dest_dir): os.mkdir(dest_dir)
-    
-    
+    if r:
+        subdirectories = [name for name in os.listdir(dir_path) if os.path.isdir(name) and not locked_dirname+"-" in name]
+        for subdir in subdirectories:
+            _lock(dir_path/subdir, dest_dir/subdir, password, r=r) 
     file_names = [name for name in os.listdir(dir_path) if os.path.isfile(name)]
+    print(dir_path, dest_dir, file_names)
+    if len(file_names) == 0: return
     salt_dict = {}
     for fname in file_names:
-        
         src_path = dir_path/fname
         # Movemos el fichero a la carpeta .locked
         dest_path = dest_dir/fname
@@ -143,16 +166,9 @@ def lock(dir_path:Path):
     salt_file_path = info_dir_path/salt_cellar_fname
     with open(salt_file_path, 'wb') as salt_file:
         pickle.dump(salt_dict, salt_file)
-        
-    # Creamos un fichero para que el usuario pude guardar un pista de la contraseña
-    hint_file_path = dir_path/hint_fname
-    with open(hint_file_path, 'w') as hint_file:
-        msg = "# Add a hint for your locked dir password:\n      => hint: ''"
-        hint_file.write(msg)
-
-    print(f"[%] Finished -> '{dir_path}' has been locked")
+ 
     
-def unlock(dir_path:Path):
+def unlock(dir_path:Path, r=False):
     # Vemos si el directorio a sido encriptado antes
     if not is_locked(dir_path):
         print(f"[!] This directory hasn't been locked yet")
