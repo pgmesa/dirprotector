@@ -122,6 +122,7 @@ def lock(dir_path:Path, r=False):
     outcome = _lock(dir_path, dest_dir, password, r=r)
     
     info_dir_path = dest_dir/info_dirname
+    if not os.path.exists(info_dir_path): os.mkdir(info_dir_path)
     # Guardamos el hash salteado de la password
     pw_salt = generate_salt()
     hashed_pw = derive(password.encode(), pw_salt)
@@ -151,7 +152,7 @@ def _lock(dir_path:Path, dest_dir:Path, password, r=False):
             else:
                 dir_outcome = 1
     file_names = [name for name in os.listdir(dir_path) if os.path.isfile(dir_path/name)]
-    if len(file_names) == 0: return
+    if len(file_names) == 0: return dir_outcome
     salt_dict = {}
     for fname in file_names:
         src_path = dir_path/fname
@@ -176,7 +177,7 @@ def _lock(dir_path:Path, dest_dir:Path, password, r=False):
             salt_dict[fname] = salt
     
     info_dir_path = dest_dir/info_dirname
-    os.mkdir(info_dir_path)
+    if not os.path.exists(info_dir_path): os.mkdir(info_dir_path)
 
     # Guardamos las salts utilizadas en un fichero a parte 
     salt_file_path = info_dir_path/salt_cellar_fname
@@ -224,6 +225,7 @@ def _unlock(locked_dir_path:Path, dir_path:Path, password) -> int:
         else:
             dir_outcome = 1
     file_names = [name for name in os.listdir(locked_dir_path) if os.path.isfile(locked_dir_path/name)]
+    if len(file_names) == 0: return dir_outcome
     with open(locked_dir_path/info_dirname/salt_cellar_fname, 'rb') as salt_file:
         salt_dict = pickle.load(salt_file)
     for fname in file_names:
@@ -258,8 +260,8 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("[!] Exit")
         exit(1)
-    except Exception as err:
-        print(f"[!] Unexpected Error: {err}")
-        input("-> Press Enter to exit")
-        exit(1)
+    # except Exception as err:
+    #     print(f"[!] Unexpected Error: {err}")
+    #     input("-> Press Enter to exit")
+    #     exit(1)
     
