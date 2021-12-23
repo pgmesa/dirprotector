@@ -27,7 +27,7 @@ enc_info_headers = ["file_extension", "salt", "token"]
 def main():
     print(" + DIR PROTECTOR (ctrl-c to exit):")
     args = sys.argv; args.pop(0)
-    print(args)
+    print(args,"(args)")
     current_fname = os.path.basename(__file__)
     target_dir = get_target_dir(args)
     print(f'[%] Target dir -> "{target_dir}"')
@@ -77,18 +77,32 @@ def get_date(path_friendly:bool=False) -> str:
         return str(datetime)
 
 def get_locked_dirpath(dir_path:Path):
-    dirs = [name for name in os.listdir(dir_path) if os.path.isdir(name)]
+    dirs = [name for name in os.listdir(dir_path) if os.path.isdir(dir_path/name)]
     for d in dirs:
         if locked_dirname+"-" in d:
             return dir_path/d
-    
+        
+def get_hint(dir_path:Path) -> str:
+    if os.path.exists(dir_path/hint_fname):
+        return (dir_path/hint_fname).read_text().split("'")[1]
+    return ''
+        
 def is_locked(dir_path:Path):
-    dirs = [name for name in os.listdir(dir_path) if os.path.isdir(name)]
+    dirs = [name for name in os.listdir(dir_path) if os.path.isdir(dir_path/name)]
     for d in dirs:
         if locked_dirname+"-" in d:
             return True
     return False
-        
+
+def is_recursively_locked(dir_path:Path):
+    if is_locked(dir_path):
+        locked_path = get_locked_dirpath(dir_path)
+        dirs = [name for name in os.listdir(locked_path) if os.path.isdir(locked_path/name)]
+        if len(dirs) > 1:
+            # Hay mas de un directorio en a parte del de .__info__ => lock -r
+            return True 
+    return False
+      
 def print_help():
     print("[?] Commands:")
     for command, info in commands.items():
@@ -105,7 +119,7 @@ def rmtree(parent_dir:Path):
     shutil.rmtree(parent_dir, onerror=del_rw)
                 
 # ---------- COMMANDS --------- 
-def lock(dir_path:Path, r=False):
+def lock(dir_path:Path, r=False, password:str=None, hint:str=None):
     # Vemos si este directorio ya ha sido encriptado
     if is_locked(dir_path):
         print(f"[!] This directory is already locked")
@@ -115,8 +129,13 @@ def lock(dir_path:Path, r=False):
         return
     if r: print("[%] Locking directory recursively...")
     else: print("[%] Locking directory...")
-    password = str(input(" + Choose a password: "))
+    if password is None:
+        password = str(input(" + Choose a password: "))
     print(f" -> Password chosen: '{password}'")
+    if hint is None:
+        hint = str(input(" + Add a hint (press enter to skip): "))
+    if hint != "":
+        print(f" -> Hint added: '{hint}'")
     print(f"[-] Creating '{locked_dirname}' directory")
     dest_dir = Path(dir_path/(locked_dirname+f"-{get_date(path_friendly=True)}"))
     outcome = _lock(dir_path, dest_dir, password, r=r)
@@ -132,7 +151,7 @@ def lock(dir_path:Path, r=False):
     # Creamos un fichero para que el usuario pude guardar un pista de la contraseña
     hint_file_path = dir_path/hint_fname
     with open(hint_file_path, 'w') as hint_file:
-        msg = "# Add a hint for your locked dir password:\n      => hint: ''"
+        msg = f"[%] Add a hint for your locked directory password:\n    => hint: '{hint}'"
         hint_file.write(msg)
 
     if outcome == 0:
@@ -192,6 +211,10 @@ def unlock(dir_path:Path):
     if not is_locked(dir_path):
         print(f"[!] This directory hasn't been locked yet")
         return
+    r = is_recursively_locked(dir_path)
+    print(" -> recursively locked =", r)
+    hint = get_hint(dir_path)
+    print(f" -> hint = '{hint}'")
     locked_dir_path = get_locked_dirpath(dir_path) 
     password = str(input(" + Introduce the password: "))
     print(f" -> Password used: '{password}'")
@@ -211,6 +234,11 @@ def unlock(dir_path:Path):
     if outcome == 0:
         clean_trash(locked_dir_path)
         print(f"[%] Finished -> '{dir_path}' has been unlocked")
+        answer = str(input(" + Lock again with same credentials? (y/n): "))
+        if answer.lower() == "y":
+            lock(dir_path, r=r, password=password, hint=hint)      
+        else:
+            print(f"[%] Not locking again")  
     else:
         print(f"[!] Some errors came up while unlocking '{dir_path}'")
     
@@ -256,7 +284,9 @@ def _unlock(locked_dir_path:Path, dir_path:Path, password) -> int:
 
 if __name__ == "__main__":
     try:
+        print("[%] Program started")
         main()
+        print("[%] Program finished successfully")
     except KeyboardInterrupt:
         print("[!] Exit")
         exit(1)
