@@ -124,7 +124,12 @@ def lock(dir_path:Path, r=False, password:str=None, hint:str=None):
     if is_locked(dir_path):
         print(f"[!] This directory is already locked")
         return
-    if len(os.listdir(dir_path)) == 0:
+    dir_files = [name for name in os.listdir(dir_path) if os.path.isfile(dir_path/name)]
+    if not r:
+        if len(dir_files) == 0:
+            print(f"[!] This directory has no files to encrypt")
+            return
+    elif len(os.listdir(dir_path)) == 0:
         print(f"[!] This directory is empty")
         return
     if r: print("[%] Locking directory recursively...")
