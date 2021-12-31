@@ -127,7 +127,7 @@ def lock(dir_path:Path, r=False, password:str=None, hint:str=None):
     dir_files = [name for name in os.listdir(dir_path) if os.path.isfile(dir_path/name)]
     if not r:
         if len(dir_files) == 0:
-            print(f"[!] This directory has no files to encrypt")
+            print(f"[!] This directory has no files to encrypt 'lock -r for subdirectories'")
             return
     elif len(os.listdir(dir_path)) == 0:
         print(f"[!] This directory is empty")
