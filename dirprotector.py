@@ -22,6 +22,7 @@ commands = {
 }
 
 enc_info_headers = ["file_extension", "salt", "token"]
+ignored_files = ['desktop.ini', '.DS_Store']
 
 # -------- Main Activity -------
 def main():
@@ -124,7 +125,7 @@ def lock(dir_path:Path, r=False, password:str=None, hint:str=None):
     if is_locked(dir_path):
         print(f"[!] This directory is already locked")
         return
-    dir_files = [name for name in os.listdir(dir_path) if os.path.isfile(dir_path/name)]
+    dir_files = [name for name in os.listdir(dir_path) if os.path.isfile(dir_path/name) and name not in ignored_files]
     if not r:
         if len(dir_files) == 0:
             print(f"[!] This directory has no files to encrypt 'lock -r for subdirectories'")
@@ -175,7 +176,7 @@ def _lock(dir_path:Path, dest_dir:Path, password, r=False):
                 rmtree(dir_path/subdir)
             else:
                 dir_outcome = 1
-    file_names = [name for name in os.listdir(dir_path) if os.path.isfile(dir_path/name)]
+    file_names = [name for name in os.listdir(dir_path) if os.path.isfile(dir_path/name) and name not in ignored_files]
     if len(file_names) == 0: return dir_outcome
     salt_dict = {}
     for fname in file_names:
