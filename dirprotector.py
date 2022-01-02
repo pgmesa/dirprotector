@@ -17,8 +17,8 @@ salt_cellar_fname = '.__salt-cellar__'
 hint_fname = "__hint__.txt"
 
 commands = {
-    'lock': "Encrypts all files in the directory (not subdirectories). Add -r for subdirectories",
-    'unlock': "Decrypts the files encrypted. Add -r for subdirectories"
+    'lock': "Encrypts all files in the directory (not subdirectories). -r for subdirectories, -p=<password>,-h=<hint>",
+    'unlock': "Decrypts the files encrypted. -p=<password>, -n to avoid relock prompt"
 }
 
 enc_info_headers = ["file_extension", "salt", "token"]
@@ -33,30 +33,22 @@ def main():
     target_dir = get_target_dir(args)
     print(f'[%] Target dir -> "{target_dir}"')
     if len(args) > 0:
-        recursively = False
-        if "-r" in args: 
-            recursively = True 
-        if "lock" in args: lock(dir_path=target_dir, r=recursively)
-        elif "unlock" in args: unlock(dir_path=target_dir)
-        else: activate_shell(dir_path=target_dir)
-    else: activate_shell(dir_path=target_dir)
-        
-def activate_shell(dir_path:Path):
-    print_help()
-    print(" -  Enter command: ")
-    valid_command = False
-    while not valid_command:
-        command_line = str(input("> ")).split(" ")
-        command = command_line[0]
-        if command in commands:
-            recursively = False
-            if len(command_line) > 1 and command_line[1] == "-r": 
-                recursively = True
-            valid_command = True
-            if command == 'lock': lock(dir_path, recursively)
-            elif command == 'unlock': unlock(dir_path)
-        else:
-            print(f"[!] '{command}' command doesn't exist in the program")
+        try: password = [a for a in args if "-p=" in a][0].split("=")[1]
+        except IndexError: password = None
+        if "lock" in args: 
+            recursively = False; 
+            if "-r" in args: 
+                recursively = True 
+            try: hint = [a for a in args if "-h=" in a][0].split("=")[1]
+            except IndexError: hint = None
+            lock(dir_path=target_dir, r=recursively, password=password, hint=hint)
+        elif "unlock" in args:
+            relock = None; 
+            if "-n" in args: 
+                relock = False
+            unlock(dir_path=target_dir, password=password, relock=relock)
+        else: print_help()
+    else: print_help()
                 
 # ---------- UTILS ----------           
 def get_target_dir(sys_args:list) -> Path:
@@ -210,9 +202,8 @@ def _lock(dir_path:Path, dest_dir:Path, password, r=False):
         pickle.dump(salt_dict, salt_file)
         
     return dir_outcome
- 
     
-def unlock(dir_path:Path):
+def unlock(dir_path:Path, password:str=None, relock:bool=None):
     # Vemos si el directorio a sido encriptado antes
     if not is_locked(dir_path):
         print(f"[!] This directory hasn't been locked yet")
@@ -222,7 +213,8 @@ def unlock(dir_path:Path):
     hint = get_hint(dir_path)
     print(f" -> hint = '{hint}'")
     locked_dir_path = get_locked_dirpath(dir_path) 
-    password = str(input(" + Introduce the password: "))
+    if password is None:
+        password = str(input(" + Introduce the password: "))
     print(f" -> Password used: '{password}'")
     # Recuperamos la contrase�a
     with open(locked_dir_path/info_dirname/password_fname, 'rb') as file:
@@ -240,11 +232,12 @@ def unlock(dir_path:Path):
     if outcome == 0:
         clean_trash(locked_dir_path)
         print(f"[%] Finished -> '{dir_path}' has been unlocked")
-        answer = str(input(" + Lock again with same credentials? (y/n): "))
-        if answer.lower() == "y":
+        if relock is None:
+            answer = str(input(" + Lock again with same credentials? (y/n): "))
+        if relock or ("answer" in locals() and answer.lower() == "y"):
             lock(dir_path, r=r, password=password, hint=hint)      
         else:
-            print(f"[%] Not locking again")  
+            print(f"[%] Not locking again")
     else:
         print(f"[!] Some errors came up while unlocking '{dir_path}'")
     
