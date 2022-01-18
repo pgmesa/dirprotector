@@ -17,12 +17,14 @@ salt_cellar_fname = '.__salt-cellar__'
 hint_fname = "__hint__.txt"
 
 commands = {
-    'lock': "Encrypts all files in the directory (not subdirectories). -r for subdirectories, -p=<password>,-h=<hint>",
+    'lock': "Encrypts all files in the directory (not subdirectories). -r for subdirectories, -p=<password>,-h=<hint>,-d=<iterations>",
     'unlock': "Decrypts the files encrypted. -p=<password>, -n to avoid relock prompt"
 }
 
 enc_info_headers = ["file_extension", "salt", "token"]
 ignored_files = ['desktop.ini', '.DS_Store']
+
+default_derive_iters = 100000 
 
 # -------- Main Activity -------
 def main():
@@ -41,7 +43,9 @@ def main():
                 recursively = True 
             try: hint = [a for a in args if "-h=" in a][0].split("=")[1]
             except IndexError: hint = None
-            lock(dir_path=target_dir, r=recursively, password=password, hint=hint)
+            try: derive_iters = int([a for a in args if "-d=" in a][0].split("=")[1])
+            except IndexError: derive_iters = default_derive_iters
+            lock(dir_path=target_dir, r=recursively, password=password, hint=hint, iters=derive_iters)
         elif "unlock" in args:
             relock = None; 
             if "-n" in args: 
@@ -112,7 +116,7 @@ def rmtree(parent_dir:Path):
     shutil.rmtree(parent_dir, onerror=del_rw)
                 
 # ---------- COMMANDS --------- 
-def lock(dir_path:Path, r=False, password:str=None, hint:str=None):
+def lock(dir_path:Path, r=False, password:str=None, hint:str=None, iters=default_derive_iters):
     # Vemos si este directorio ya ha sido encriptado
     if is_locked(dir_path):
         print(f"[!] This directory is already locked")
@@ -127,6 +131,7 @@ def lock(dir_path:Path, r=False, password:str=None, hint:str=None):
         return
     if r: print("[%] Locking directory recursively...")
     else: print("[%] Locking directory...")
+    print(f" -> Derive Iterations = {iters}")
     if password is None:
         password = str(input(" + Choose a password: "))
     print(f" -> Password chosen: '{password}'")
@@ -136,16 +141,16 @@ def lock(dir_path:Path, r=False, password:str=None, hint:str=None):
         print(f" -> Hint added: '{hint}'")
     print(f"[-] Creating '{locked_dirname}' directory")
     dest_dir = Path(dir_path/(locked_dirname+f"-{get_date(path_friendly=True)}"))
-    outcome = _lock(dir_path, dest_dir, password, r=r)
+    outcome = _lock(dir_path, dest_dir, password, iters, r=r)
     
     info_dir_path = dest_dir/info_dirname
     if not os.path.exists(info_dir_path): os.mkdir(info_dir_path)
     # Guardamos el hash salteado de la password
     pw_salt = generate_salt()
-    hashed_pw = derive(password.encode(), pw_salt)
+    hashed_pw = derive(password.encode(), pw_salt, iterations=iters)
     pw_file_path = info_dir_path/password_fname
     with open(pw_file_path, 'wb') as salt_file:
-        pickle.dump({hashed_pw: pw_salt}, salt_file)
+        pickle.dump({hashed_pw: pw_salt, "iters": iters}, salt_file)
     # Creamos un fichero para que el usuario pude guardar un pista de la contraseña
     hint_file_path = dir_path/hint_fname
     with open(hint_file_path, 'w') as hint_file:
@@ -157,13 +162,13 @@ def lock(dir_path:Path, r=False, password:str=None, hint:str=None):
     else:
         print(f"[!] Some errors came up while locking '{dir_path}'")
 
-def _lock(dir_path:Path, dest_dir:Path, password, r=False):
+def _lock(dir_path:Path, dest_dir:Path, password, iters:int, r=False):
     if not os.path.exists(dest_dir): os.mkdir(dest_dir)
     dir_outcome = 0
     if r:
         subdirectories = [name for name in os.listdir(dir_path) if os.path.isdir(dir_path/name) and not locked_dirname+"-" in name]
         for subdir in subdirectories:
-            outcome = _lock(dir_path/subdir, dest_dir/subdir, password, r=r) 
+            outcome = _lock(dir_path/subdir, dest_dir/subdir, password, iters, r=r) 
             if outcome == 0:
                 rmtree(dir_path/subdir)
             else:
@@ -185,7 +190,7 @@ def _lock(dir_path:Path, dest_dir:Path, password, r=False):
         # Encriptamos el fichero
         try:
             salt = generate_salt()
-            key = derive(password.encode(), salt)
+            key = derive(password.encode(), salt, iterations=iters)
             encrypt_file(dest_path, key)
         except Exception as err:
             print(f"[!] Error encrypting '{fname}' -> '{err}'")
@@ -221,13 +226,15 @@ def unlock(dir_path:Path, password:str=None, relock:bool=None):
         pw_info = pickle.load(file)
         og_hashed_pw =list(pw_info.keys())[0]
         pw_salt = pw_info[og_hashed_pw]
+        iters = pw_info["iters"] # try: 
+        # except: iters = 400000
     # Vemos si la contrase�a es correcta
-    hasehd_pw = derive(password.encode(), pw_salt)
+    hasehd_pw = derive(password.encode(), pw_salt, iterations=iters)
     if hasehd_pw != og_hashed_pw:
         print("[!] Incorrect password")
         return
     print("[%] Unlocking directory...")
-    outcome = _unlock(locked_dir_path, dir_path, password)
+    outcome = _unlock(locked_dir_path, dir_path, password, iters)
     
     if outcome == 0:
         clean_trash(locked_dir_path)
@@ -241,12 +248,12 @@ def unlock(dir_path:Path, password:str=None, relock:bool=None):
     else:
         print(f"[!] Some errors came up while unlocking '{dir_path}'")
     
-def _unlock(locked_dir_path:Path, dir_path:Path, password) -> int:
+def _unlock(locked_dir_path:Path, dir_path:Path, password, iters:int) -> int:
     subdirectories = [name for name in os.listdir(locked_dir_path) if os.path.isdir(locked_dir_path/name) and name != info_dirname]
     dir_outcome = 0
     for subdir in subdirectories:
         if not os.path.exists(dir_path/subdir): os.mkdir(dir_path/subdir)
-        outcome = _unlock(locked_dir_path/subdir, dir_path/subdir, password)
+        outcome = _unlock(locked_dir_path/subdir, dir_path/subdir, password, iters)
         if outcome == 0:
             rmtree(locked_dir_path/subdir)
         else:
@@ -269,7 +276,7 @@ def _unlock(locked_dir_path:Path, dir_path:Path, password) -> int:
         # desencriptamos el fichero
         try:
             salt = salt_dict[fname]
-            key = derive(password.encode(), salt)
+            key = derive(password.encode(), salt, iterations=iters)
             decrypt_file(dest_path, key)
         except Exception as err:
             print(f"[!] Error decrypting '{fname}' -> '{err}'")
