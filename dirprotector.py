@@ -1,4 +1,5 @@
 
+# Built-in modules
 import os
 import sys
 import stat
@@ -6,8 +7,10 @@ import shutil
 import pickle
 import datetime as dt
 from pathlib import Path
-from encryption.hashes import derive, generate_salt
-from encryption.symmetric import decrypt_file, encrypt_file
+
+# Dependencies
+from crypt_utilities.hashes import derive, generate_salt
+from crypt_utilities.symmetric import decrypt_file, encrypt_file
 
 dir_ = Path(os.getcwd()).resolve()
 locked_dirname = '.locked'
