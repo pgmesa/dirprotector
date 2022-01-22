@@ -5,6 +5,7 @@ import sys
 import stat
 import shutil
 import pickle
+import platform
 import datetime as dt
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from crypt_utilities.hashes import derive, generate_salt
 from crypt_utilities.symmetric import decrypt_file, encrypt_file
 
 dir_ = Path(os.getcwd()).resolve()
+system = platform.system()
 locked_dirname = '.locked'
 info_dirname = '.__info__'
 password_fname = '.__password__'
@@ -21,11 +23,14 @@ hint_fname = "__hint__.txt"
 
 commands = {
     'lock': "Encrypts all files in the directory (not subdirectories). -r for subdirectories, -p=<password>,-h=<hint>,-d=<iterations>",
-    'unlock': "Decrypts the files encrypted. -p=<password>, -n to avoid relock prompt"
+    'unlock': "Decrypts the files encrypted. -p=<password>, -n to avoid relock prompt",
 }
 
 enc_info_headers = ["file_extension", "salt", "token"]
 ignored_files = ['desktop.ini', '.DS_Store']
+
+win_venvs = ["Scripts/activate.bat", "Scripts/Activate.ps1"]
+posix_venvs = ["bin/activate","bin/activate.fish","bin/activate.csh","bin/Activate.ps1"]
 
 default_derive_iters = 100000 
 
@@ -36,11 +41,11 @@ def main():
     print(args,"(args)")
     current_fname = os.path.basename(__file__)
     target_dir = get_target_dir(args)
-    print(f'[%] Target dir -> "{target_dir}"')
     if len(args) > 0:
         try: password = [a for a in args if "-p=" in a][0].split("=")[1]
         except IndexError: password = None
-        if "lock" in args: 
+        command = args[0]
+        if "lock" == command or "autolock" == command: 
             recursively = False; 
             if "-r" in args: 
                 recursively = True 
@@ -48,13 +53,18 @@ def main():
             except IndexError: hint = None
             try: derive_iters = int([a for a in args if "-d=" in a][0].split("=")[1])
             except IndexError: derive_iters = default_derive_iters
-            lock(dir_path=target_dir, r=recursively, password=password, hint=hint, iters=derive_iters)
-        elif "unlock" in args:
+            params = dict(
+                dir_path=target_dir, r=recursively, password=password, hint=hint, iters=derive_iters
+            )
+            lock(**params)
+        elif "unlock" == command:
             relock = None; 
             if "-n" in args: 
                 relock = False
             unlock(dir_path=target_dir, password=password, relock=relock)
-        else: print_help()
+        else:
+            print(f"[!] '{command}' is not a valid command!") 
+            print_help()
     else: print_help()
                 
 # ---------- UTILS ----------           
@@ -102,6 +112,16 @@ def is_recursively_locked(dir_path:Path):
             # Hay mas de un directorio en a parte del de .__info__ => lock -r
             return True 
     return False
+
+def is_venv(dir_path:Path) -> bool:
+    venv_paths = win_venvs
+    if system != "Windows":
+        venv_paths = posix_venvs
+    for path in venv_paths:
+        act_path = dir_path/path
+        if os.path.exists(act_path): 
+            return True   
+    return False
       
 def print_help():
     print("[?] Commands:")
@@ -120,9 +140,14 @@ def rmtree(parent_dir:Path):
                 
 # ---------- COMMANDS --------- 
 def lock(dir_path:Path, r=False, password:str=None, hint:str=None, iters=default_derive_iters):
+    print(f'[%] Target dir -> "{dir_path}"')
     # Vemos si este directorio ya ha sido encriptado
     if is_locked(dir_path):
         print(f"[!] This directory is already locked")
+        return
+    # Vemos si el directorio es un entorno virtual para ignorarlo
+    if is_venv(dir_path):
+        print(f"[!] This directory is a virtual environment and is not worth to encrypt")
         return
     dir_files = [name for name in os.listdir(dir_path) if os.path.isfile(dir_path/name) and name not in ignored_files]
     if not r:
@@ -166,6 +191,10 @@ def lock(dir_path:Path, r=False, password:str=None, hint:str=None, iters=default
         print(f"[!] Some errors came up while locking '{dir_path}'")
 
 def _lock(dir_path:Path, dest_dir:Path, password, iters:int, r=False):
+    # Vemos si el directorio es un entorno virtual para ignorarlo
+    if is_venv(dir_path):
+        print(f"[%] Ignoring '/{dir_path.name}' (virtualenv)")
+        return -1
     if not os.path.exists(dest_dir): os.mkdir(dest_dir)
     dir_outcome = 0
     if r:
@@ -174,7 +203,7 @@ def _lock(dir_path:Path, dest_dir:Path, password, iters:int, r=False):
             outcome = _lock(dir_path/subdir, dest_dir/subdir, password, iters, r=r) 
             if outcome == 0:
                 rmtree(dir_path/subdir)
-            else:
+            elif outcome == 1:
                 dir_outcome = 1
     file_names = [name for name in os.listdir(dir_path) if os.path.isfile(dir_path/name) and name not in ignored_files]
     if len(file_names) == 0: return dir_outcome
@@ -212,6 +241,7 @@ def _lock(dir_path:Path, dest_dir:Path, password, iters:int, r=False):
     return dir_outcome
     
 def unlock(dir_path:Path, password:str=None, relock:bool=None):
+    print(f'[%] Target dir -> "{dir_path}"')
     # Vemos si el directorio a sido encriptado antes
     if not is_locked(dir_path):
         print(f"[!] This directory hasn't been locked yet")
