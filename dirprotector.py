@@ -22,8 +22,8 @@ salt_cellar_fname = '.__salt-cellar__'
 hint_fname = "__hint__.txt"
 
 commands = {
-    'lock': "Encrypts all files in the directory (not subdirectories). -r for subdirectories, -p=<password>,-h=<hint>,-d=<iterations>",
-    'unlock': "Decrypts the files encrypted. -p=<password>, -n to avoid relock prompt",
+    'lock': "Encrypts all files in the directory (not subdirectories). -r for subdirectories, -p=<password>,-h=<hint>,-i=<iterations>, -d=<path>",
+    'unlock': "Decrypts the files encrypted. -p=<password>, -d=<path>, -n to avoid relock prompt",
 }
 
 enc_info_headers = ["file_extension", "salt", "token"]
@@ -40,10 +40,11 @@ def main():
     args = sys.argv; args.pop(0)
     print(args,"(args)")
     current_fname = os.path.basename(__file__)
-    target_dir = get_target_dir(args)
     if len(args) > 0:
         try: password = [a for a in args if "-p=" in a][0].split("=")[1]
         except IndexError: password = None
+        try: target_dir = extract_path([a for a in args if "-d=" in a][0].split("=")[1])
+        except IndexError: target_dir = dir_
         command = args[0]
         if "lock" == command or "autolock" == command: 
             recursively = False; 
@@ -51,7 +52,7 @@ def main():
                 recursively = True 
             try: hint = [a for a in args if "-h=" in a][0].split("=")[1]
             except IndexError: hint = None
-            try: derive_iters = int([a for a in args if "-d=" in a][0].split("=")[1])
+            try: derive_iters = int([a for a in args if "-i=" in a][0].split("=")[1])
             except IndexError: derive_iters = default_derive_iters
             params = dict(
                 dir_path=target_dir, r=recursively, password=password, hint=hint, iters=derive_iters
@@ -68,14 +69,10 @@ def main():
     else: print_help()
                 
 # ---------- UTILS ----------           
-def get_target_dir(sys_args:list) -> Path:
-    target_dir = dir_
-    for arg in sys_args:
-        if "dirpath=" in arg:
-            target_dir = Path(str(arg.removeprefix("dirpath="))).resolve()
-            break
+def extract_path(path:str) -> Path:
+    path = path.replace('"', "").replace("'", "").replace("~", str(Path.home()))
         
-    return target_dir
+    return Path(path).resolve()
     
 def get_date(path_friendly:bool=False) -> str:
     datetime = dt.datetime.now()
